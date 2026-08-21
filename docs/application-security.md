@@ -1,4 +1,5 @@
-## Access Control
+## Security Update
 
-Access to sensitive application resources should be controlled.
+Urgent security updates should be reviewed and deployed through controlled version control processes.
+
 
