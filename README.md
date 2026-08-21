@@ -37,3 +37,7 @@ Product Service     Order Service
 
 The project is continuously evolving through feature branches.
 
+## Product Categories
+
+CommerceFlow supports organized product categories.
+
