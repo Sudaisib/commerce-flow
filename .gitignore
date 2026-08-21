@@ -1,1 +1,18 @@
-config/production.yaml
+# Logs
+*.log
+
+# Environment files
+.env
+
+# Local configuration
+config/local.yaml
+
+# Temporary files
+*.tmp
+
+# Operating system files
+.DS_Store
+
+# Editor files
+*.swp
+
