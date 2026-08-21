@@ -33,3 +33,7 @@ Product Service     Order Service
              v
           Database
 
+## Current Development
+
+The project is continuously evolving through feature branches.
+
