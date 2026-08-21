@@ -6,3 +6,5 @@ function startServer(): void {
 
 startServer();
 
+console.log("Server configuration updated");
+
