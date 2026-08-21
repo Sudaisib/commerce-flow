@@ -1,0 +1,9 @@
+environment: production
+
+database:
+  host: production-database
+  name: commerceflow_prod
+
+logging:
+  level: info
+

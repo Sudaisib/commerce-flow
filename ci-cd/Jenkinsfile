@@ -1,0 +1,24 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Source') {
+            steps {
+                echo 'Retrieving source code'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo 'Building CommerceFlow'
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo 'Deploying CommerceFlow'
+            }
+        }
+    }
+}
+

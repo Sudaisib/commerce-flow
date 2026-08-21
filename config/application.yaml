@@ -1,0 +1,12 @@
+application:
+  name: CommerceFlow
+  environment: development
+
+server:
+  port: 3000
+
+features:
+  products: true
+  orders: true
+  shoppingCart: true
+

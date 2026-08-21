@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: commerceflow
+
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: commerceflow
+
+  template:
+    metadata:
+      labels:
+        app: commerceflow
+
+    spec:
+      containers:
+        - name: commerceflow
+          image: commerceflow:latest
+

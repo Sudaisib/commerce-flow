@@ -1,0 +1,9 @@
+environment: development
+
+database:
+  host: localhost
+  name: commerceflow_dev
+
+logging:
+  level: debug
+
