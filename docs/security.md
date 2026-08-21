@@ -1,4 +1,4 @@
-# CommerceFlow Security
+## Access Control
 
-Security practices are important for protecting customers, orders and application data.
+Access to sensitive application resources should be controlled.
 
