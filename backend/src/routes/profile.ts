@@ -11,7 +11,7 @@ export function getCustomerProfile(
     return {
         id,
         fullName: "CommerceFlow Customer",
-        email: "zainab@example.com"
+        email: "customer@example.com"
     };
 }
 
