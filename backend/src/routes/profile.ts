@@ -13,5 +13,5 @@ export function getCustomerProfile(
         fullName: "CommerceFlow Customer",
         email: "customer@example.com"
     };
-}\
+}
 
