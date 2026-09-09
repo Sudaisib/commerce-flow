@@ -1,0 +1,387 @@
+# ============================================================
+# PYTHON + AZURE CI/CD WITH DEPENDENCY CACHING
+# ============================================================
+
+name: Python Azure CI/CD with Dependency Cache
+
+# ------------------------------------------------------------
+# WORKFLOW TRIGGERS
+# ------------------------------------------------------------
+
+on:
+
+  # Run when code is pushed to main or develop
+  push:
+    branches:
+      - main
+      - develop
+
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "requirements.txt"
+
+  # Run when a Pull Request is created or updated
+  pull_request:
+    branches:
+      - main
+
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "requirements.txt"
+
+  # Allow the workflow to be started manually
+  workflow_dispatch:
+
+
+# ------------------------------------------------------------
+# WORKFLOW VARIABLES
+# ------------------------------------------------------------
+
+env:
+
+  # Default Python version
+  PYTHON_VERSION: "3.12"
+
+  # Application environment
+  ENVIRONMENT: "production"
+
+
+# ------------------------------------------------------------
+# CONCURRENCY
+# ------------------------------------------------------------
+
+concurrency:
+
+  # Create a concurrency group for each branch/ref
+  group: python-azure-${{ github.ref }}
+
+  # Cancel older running workflow when a new one starts
+  cancel-in-progress: true
+
+
+# ------------------------------------------------------------
+# JOBS
+# ------------------------------------------------------------
+
+jobs:
+
+  # ==========================================================
+  # TEST JOB
+  # ==========================================================
+
+  test:
+
+    name: Test Python ${{ matrix.python-version }} - ${{ matrix.os }}
+
+    # Matrix determines where the job runs
+    runs-on: ${{ matrix.os }}
+
+    # Stop the job if it runs for more than 15 minutes
+    timeout-minutes: 15
+
+
+    # --------------------------------------------------------
+    # MATRIX
+    # --------------------------------------------------------
+
+    strategy:
+
+      # Continue all matrix combinations even if one fails
+      fail-fast: false
+
+      matrix:
+
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+        # Add a special experimental configuration
+        include:
+
+          - python-version: "3.13"
+            os: ubuntu-latest
+            experimental: true
+
+        # Remove one unnecessary combination
+        exclude:
+
+          - python-version: "3.10"
+            os: windows-latest
+
+
+    # --------------------------------------------------------
+    # STEPS
+    # --------------------------------------------------------
+
+    steps:
+
+      # ------------------------------------------------------
+      # STEP 1: CHECKOUT
+      # ------------------------------------------------------
+
+      - name: Checkout repository
+
+        # GitHub-provided action
+        uses: actions/checkout@v4
+
+
+      # ------------------------------------------------------
+      # STEP 2: SET UP PYTHON + CACHE DEPENDENCIES
+      # ------------------------------------------------------
+
+      - name: Set up Python
+
+        uses: actions/setup-python@v5
+
+        with:
+
+          # Use the Python version from the matrix
+          python-version: ${{ matrix.python-version }}
+
+          # Enable pip dependency caching
+          cache: "pip"
+
+          # Use requirements.txt to determine dependencies
+          cache-dependency-path: requirements.txt
+
+
+      # ------------------------------------------------------
+      # STEP 3: DISPLAY INFORMATION
+      # ------------------------------------------------------
+
+      - name: Display workflow information
+
+        run: |
+          echo "Application: ${{ vars.APP_NAME }}"
+          echo "Environment: $ENVIRONMENT"
+          echo "Python Version: ${{ matrix.python-version }}"
+          echo "Operating System: ${{ matrix.os }}"
+          echo "Event: ${{ github.event_name }}"
+
+
+      # ------------------------------------------------------
+      # STEP 4: INSTALL DEPENDENCIES
+      # ------------------------------------------------------
+
+      - name: Install dependencies
+
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+
+      # ------------------------------------------------------
+      # STEP 5: RUN TESTS
+      # ------------------------------------------------------
+
+      - name: Run application tests
+
+        run: pytest tests/
+
+
+      # ------------------------------------------------------
+      # STEP 6: EXPERIMENTAL TEST
+      # ------------------------------------------------------
+
+      - name: Run experimental Python tests
+
+        # Only run for the experimental matrix configuration
+        if: ${{ matrix.experimental == true }}
+
+        # Failure here should not stop the job
+        continue-on-error: true
+
+        run: |
+          echo "Running experimental tests..."
+          pytest tests/experimental/
+
+
+      # ------------------------------------------------------
+      # STEP 7: UPLOAD TEST REPORT
+      # ------------------------------------------------------
+
+      - name: Upload test reports
+
+        # Run even when previous steps fail
+        if: always()
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: test-report-${{ matrix.python-version }}-${{ matrix.os }}
+
+          path: test-results/
+
+
+  # ==========================================================
+  # BUILD JOB
+  # ==========================================================
+
+  build:
+
+    name: Build Python Application
+
+    # Build starts only after test succeeds
+    needs: test
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 20
+
+
+    steps:
+
+      # Checkout source code
+      - name: Checkout repository
+
+        uses: actions/checkout@v4
+
+
+      # Set up Python
+      - name: Set up Python
+
+        uses: actions/setup-python@v5
+
+        with:
+
+          python-version: ${{ env.PYTHON_VERSION }}
+
+          # Enable pip cache
+          cache: "pip"
+
+          cache-dependency-path: requirements.txt
+
+
+      # Install project dependencies
+      - name: Install dependencies
+
+        run: pip install -r requirements.txt
+
+
+      # Build application
+      - name: Build application
+
+        run: |
+          mkdir -p dist
+          echo "Python Azure application build completed" > dist/build.txt
+
+
+      # Upload build artifact
+      - name: Upload build artifact
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: python-azure-application-build
+
+          path: dist/
+
+
+  # ==========================================================
+  # DEPLOY JOB
+  # ==========================================================
+
+  deploy:
+
+    name: Deploy Python Application to Azure
+
+    # Deploy depends on both test and build
+    needs:
+      - test
+      - build
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+
+    # Only deploy after a push to main
+    if: github.event_name == 'push' &&
+        github.ref == 'refs/heads/main'
+
+
+    steps:
+
+      # Checkout repository
+      - name: Checkout repository
+
+        uses: actions/checkout@v4
+
+
+      # Download build artifact
+      - name: Download build artifact
+
+        uses: actions/download-artifact@v4
+
+        with:
+
+          name: python-azure-application-build
+
+          path: deployment/
+
+
+      # Display deployment information
+      - name: Display deployment information
+
+        run: |
+          echo "Application: ${{ vars.APP_NAME }}"
+          echo "Environment: $ENVIRONMENT"
+          echo "Azure Region: ${{ vars.AZURE_REGION }}"
+
+
+      # Authenticate with Azure
+      - name: Login to Azure
+
+        uses: azure/login@v2
+
+        with:
+
+          # Azure credentials stored securely as a secret
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+
+      # Deploy application
+      - name: Deploy to Azure
+
+        if: success()
+
+        run: |
+          echo "Deploying Python application to Azure..."
+          echo "Deployment completed successfully."
+
+
+  # ==========================================================
+  # FAILURE REPORT JOB
+  # ==========================================================
+
+  failure-report:
+
+    name: Failure Report
+
+    runs-on: ubuntu-latest
+
+    # Run when the workflow has a failure
+    if: failure()
+
+
+    steps:
+
+      - name: Report workflow failure
+
+        run: |
+          echo "The Python Azure workflow has failed."
+          echo "Please review the failed jobs and artifacts."
