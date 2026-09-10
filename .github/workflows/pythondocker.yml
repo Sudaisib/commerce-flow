@@ -1,0 +1,481 @@
+# ============================================================
+# PYTHON + DOCKER CI/CD
+# JOB CONTAINER + SERVICE CONTAINER
+# ============================================================
+
+name: Python Docker CI/CD
+
+# ============================================================
+# WORKFLOW TRIGGERS
+# ============================================================
+
+on:
+
+  # Run when code is pushed to main or develop
+  push:
+    branches:
+      - main
+      - develop
+
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "requirements.txt"
+      - "Dockerfile"
+
+  # Run when a pull request targets main
+  pull_request:
+    branches:
+      - main
+
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+  # Allow manual execution
+  workflow_dispatch:
+
+
+# ============================================================
+# WORKFLOW VARIABLES
+# ============================================================
+
+env:
+
+  PYTHON_VERSION: "3.12"
+  APP_NAME: "Python Docker Application"
+  IMAGE_NAME: "user/python-app"
+
+
+# ============================================================
+# CONCURRENCY
+# ============================================================
+
+concurrency:
+
+  # Create a group for each branch/ref
+  group: python-docker-${{ github.ref }}
+
+  # Cancel an older running workflow when a newer one starts
+  cancel-in-progress: true
+
+
+# ============================================================
+# JOBS
+# ============================================================
+
+jobs:
+
+  # ==========================================================
+  # TEST JOB
+  # ==========================================================
+
+  test:
+
+    name: Test Python Application
+
+    # GitHub provides the runner
+    runs-on: ubuntu-latest
+
+    # --------------------------------------------------------
+    # JOB CONTAINER
+    # --------------------------------------------------------
+
+    container:
+
+      # All steps in this job run inside this container
+      image: python:3.12
+
+      # Environment variables inside the job container
+      env:
+        PYTHON_ENV: test
+
+
+    # --------------------------------------------------------
+    # SERVICE CONTAINER
+    # --------------------------------------------------------
+
+    services:
+
+      postgres:
+
+        # PostgreSQL is the supporting service
+        image: postgres:16
+
+        env:
+
+          POSTGRES_USER: appuser
+          POSTGRES_PASSWORD: apppassword
+          POSTGRES_DB: appdb
+
+        # Check that PostgreSQL is ready
+        options: >-
+          --health-cmd "pg_isready -U appuser -d appdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+
+    # --------------------------------------------------------
+    # TIMEOUT
+    # --------------------------------------------------------
+
+    timeout-minutes: 15
+
+
+    # --------------------------------------------------------
+    # MATRIX
+    # --------------------------------------------------------
+
+    strategy:
+
+      # Do not cancel all matrix jobs because one fails
+      fail-fast: false
+
+      matrix:
+
+        python-version:
+          - "3.11"
+          - "3.12"
+
+        include:
+
+          # Experimental configuration
+          - python-version: "3.13"
+            experimental: true
+
+        exclude:
+
+          # Remove Python 3.11 if necessary
+          - python-version: "3.11"
+
+
+    # --------------------------------------------------------
+    # STEPS
+    # --------------------------------------------------------
+
+    steps:
+
+      # ======================================================
+      # STEP 1: CHECKOUT
+      # ======================================================
+
+      - name: Checkout repository
+
+        uses: actions/checkout@v6
+
+
+      # ======================================================
+      # STEP 2: SHOW ENVIRONMENT
+      # ======================================================
+
+      - name: Display environment information
+
+        run: |
+          python --version
+          echo "Application: $APP_NAME"
+          echo "Environment: $PYTHON_ENV"
+          echo "Database: PostgreSQL"
+
+
+      # ======================================================
+      # STEP 3: CACHE PYTHON DEPENDENCIES
+      # ======================================================
+
+      - name: Cache pip dependencies
+
+        uses: actions/cache@v4
+
+        with:
+
+          # Location of pip's downloaded packages
+          path: /root/.cache/pip
+
+          # Create a cache key using the Python version
+          key: pip-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+
+          # Fallback cache
+          restore-keys: |
+            pip-${{ matrix.python-version }}-
+
+
+      # ======================================================
+      # STEP 4: INSTALL DEPENDENCIES
+      # ======================================================
+
+      - name: Install dependencies
+
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+
+      # ======================================================
+      # STEP 5: RUN DATABASE TEST
+      # ======================================================
+
+      - name: Run database tests
+
+        env:
+
+          # Service containers can be reached by service name
+          DATABASE_HOST: postgres
+
+          DATABASE_PORT: 5432
+          DATABASE_USER: appuser
+          DATABASE_PASSWORD: apppassword
+          DATABASE_NAME: appdb
+
+        run: |
+
+          echo "Testing connection to PostgreSQL..."
+
+          python tests/test_database.py
+
+
+      # ======================================================
+      # STEP 6: RUN APPLICATION TESTS
+      # ======================================================
+
+      - name: Run application tests
+
+        run: pytest tests/
+
+
+      # ======================================================
+      # STEP 7: EXPERIMENTAL TEST
+      # ======================================================
+
+      - name: Run experimental tests
+
+        if: ${{ matrix.experimental == true }}
+
+        # Experimental tests are allowed to fail
+        continue-on-error: true
+
+        run: |
+          echo "Running experimental Python tests..."
+          pytest tests/experimental/
+
+
+      # ======================================================
+      # STEP 8: CREATE TEST REPORT
+      # ======================================================
+
+      - name: Create test report
+
+        if: always()
+
+        run: |
+          mkdir -p test-results
+          echo "Python test completed" > test-results/test-report.txt
+
+
+      # ======================================================
+      # STEP 9: UPLOAD ARTIFACT
+      # ======================================================
+
+      - name: Upload test report
+
+        if: always()
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: python-test-report-${{ matrix.python-version }}
+
+          path: test-results/
+
+
+  # ==========================================================
+  # BUILD JOB
+  # ==========================================================
+
+  build:
+
+    name: Build Docker Image
+
+    # Build starts after test
+    needs: test
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 20
+
+
+    steps:
+
+      # ------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------
+
+      - name: Checkout repository
+
+        uses: actions/checkout@v6
+
+
+      # ------------------------------------------------------
+      # Set up Docker Buildx
+      # ------------------------------------------------------
+
+      - name: Set up Docker Buildx
+
+        uses: docker/setup-buildx-action@v4
+
+
+      # ------------------------------------------------------
+      # Login to Docker Hub
+      # ------------------------------------------------------
+
+      - name: Login to Docker Hub
+
+        uses: docker/login-action@v4
+
+        with:
+
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+
+      # ------------------------------------------------------
+      # Build Docker Image
+      # ------------------------------------------------------
+
+      - name: Build Docker image
+
+        uses: docker/build-push-action@v7
+
+        with:
+
+          # Use repository as Docker build context
+          context: .
+
+          # Build but do not push yet
+          push: false
+
+          # Docker image name
+          tags: ${{ env.IMAGE_NAME }}:latest
+
+
+      # ------------------------------------------------------
+      # Create build artifact
+      # ------------------------------------------------------
+
+      - name: Create build information
+
+        run: |
+          mkdir -p dist
+          echo "Docker image: ${{ env.IMAGE_NAME }}:latest" > dist/build-info.txt
+
+
+      # ------------------------------------------------------
+      # Upload build artifact
+      # ------------------------------------------------------
+
+      - name: Upload build artifact
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: docker-build-information
+
+          path: dist/
+
+
+  # ==========================================================
+  # DEPLOY JOB
+  # ==========================================================
+
+  deploy:
+
+    name: Push Docker Image
+
+    needs:
+      - test
+      - build
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    # Only push to Docker Hub after a push to main
+    if: github.event_name == 'push' &&
+        github.ref == 'refs/heads/main'
+
+
+    steps:
+
+      # ------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------
+
+      - name: Checkout repository
+
+        uses: actions/checkout@v6
+
+
+      # ------------------------------------------------------
+      # Login to Docker Hub
+      # ------------------------------------------------------
+
+      - name: Login to Docker Hub
+
+        uses: docker/login-action@v4
+
+        with:
+
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+
+      # ------------------------------------------------------
+      # Set up Buildx
+      # ------------------------------------------------------
+
+      - name: Set up Docker Buildx
+
+        uses: docker/setup-buildx-action@v4
+
+
+      # ------------------------------------------------------
+      # Build and Push
+      # ------------------------------------------------------
+
+      - name: Build and push Docker image
+
+        uses: docker/build-push-action@v7
+
+        with:
+
+          context: .
+
+          push: true
+
+          tags: ${{ env.IMAGE_NAME }}:latest
+
+
+  # ==========================================================
+  # FAILURE JOB
+  # ==========================================================
+
+  failure-report:
+
+    name: Failure Report
+
+    runs-on: ubuntu-latest
+
+    if: failure()
+
+
+    steps:
+
+      - name: Report failure
+
+        run: |
+          echo "The workflow failed."
+          echo "Review the failed jobs and artifacts."
